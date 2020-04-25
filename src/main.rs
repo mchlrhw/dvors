@@ -1,5 +1,4 @@
 use std::{
-    fmt,
     io::{stdout, Write},
     time::Duration,
 };
@@ -8,11 +7,12 @@ use crossterm::{
     cursor::{self, MoveTo},
     event::{poll, read, Event, KeyCode},
     execute,
-    style::{style, Colorize, PrintStyledContent, StyledContent},
+    style::{style, Color, Print, PrintStyledContent, StyledContent},
     terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
-    ErrorKind, ExecutableCommand,
+    ErrorKind,
 };
 use fehler::throws;
+use rand::seq::SliceRandom;
 
 fn map_qwerty_to_dvorak(code: KeyCode) -> KeyCode {
     if let KeyCode::Char(c) = code {
@@ -92,10 +92,68 @@ fn map_qwerty_to_dvorak(code: KeyCode) -> KeyCode {
     }
 }
 
+struct Word {
+    word: String,
+    typed: String,
+}
+
+impl Word {
+    fn from(word: &str) -> Self {
+        let word = word.to_string();
+        let typed = String::new();
+        Self { word, typed }
+    }
+
+    fn add_char(&mut self, c: char) {
+        self.typed.push(c);
+    }
+
+    fn remove_char(&mut self) {
+        self.typed.pop();
+    }
+
+    fn is_complete(&self) -> bool {
+        self.word == self.typed
+    }
+
+    fn styled(&self) -> Vec<StyledContent<char>> {
+        let mut styled = vec![];
+
+        for (c, tc) in self.word.chars().zip(self.typed.chars()) {
+            let styled_c = if c == tc {
+                style(c).with(Color::Yellow)
+            } else {
+                style(c).with(Color::Red)
+            };
+            styled.push(styled_c);
+        }
+
+        styled
+    }
+
+    #[throws(ErrorKind)]
+    fn print(&self) {
+        for sc in self.styled() {
+            execute!(stdout(), PrintStyledContent(sc))?;
+        }
+    }
+}
+
+fn new_test_word() -> Word {
+    let mut rng = rand::thread_rng();
+    let word_list = [
+        "assess",
+        "shunt",
+    ];
+    Word::from(word_list.choose(&mut rng).unwrap())
+}
+
 #[throws(ErrorKind)]
 fn main() {
     enable_raw_mode()?;
     execute!(stdout(), cursor::Hide)?;
+
+    let mut test_word = new_test_word();
 
     loop {
         if poll(Duration::from_millis(500))? {
@@ -104,7 +162,24 @@ fn main() {
                     break;
                 }
                 let c = map_qwerty_to_dvorak(event.code);
+                match c {
+                    KeyCode::Backspace => test_word.remove_char(),
+                    KeyCode::Char(c) => test_word.add_char(c),
+                    _ => {}
+                }
             }
+        }
+        execute!(
+            stdout(),
+            Clear(ClearType::All),
+            MoveTo(0, 0),
+            Print(test_word.word.to_string()),
+            MoveTo(0, 0),
+        )?;
+        test_word.print()?;
+
+        if test_word.is_complete() {
+            test_word = new_test_word();
         }
     }
 

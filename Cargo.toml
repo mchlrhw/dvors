@@ -7,3 +7,4 @@ edition = "2018"
 [dependencies]
 crossterm = "0.17"
 fehler = "1.0"
+rand = "0.7"
