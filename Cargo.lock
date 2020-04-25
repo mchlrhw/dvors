@@ -59,6 +59,7 @@ dependencies = [
  "crossterm",
  "fehler",
  "rand",
+ "resource",
 ]
 
 [[package]]
@@ -293,6 +294,12 @@ name = "redox_syscall"
 version = "0.1.56"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2439c63f3f6139d1b57529d16bc3b8bb855230c8efcc5d3a896c8bea7c3b1e84"
+
+[[package]]
+name = "resource"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7966abe630826a969046b5f21843948548c1cba197363886d5e3310d885b1ab6"
 
 [[package]]
 name = "scopeguard"

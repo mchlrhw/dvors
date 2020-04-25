@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     io::{stdout, Write},
     time::Duration,
 };
@@ -13,6 +14,7 @@ use crossterm::{
 };
 use fehler::throws;
 use rand::seq::SliceRandom;
+use resource::resource_str;
 
 fn map_qwerty_to_dvorak(code: KeyCode) -> KeyCode {
     if let KeyCode::Char(c) = code {
@@ -139,13 +141,17 @@ impl Word {
     }
 }
 
-fn new_test_word() -> Word {
+fn new_test_word(word_list: &[&str], allowed: &HashSet<char>) -> Word {
     let mut rng = rand::thread_rng();
-    let word_list = [
-        "assess",
-        "shunt",
-    ];
-    Word::from(word_list.choose(&mut rng).unwrap())
+    let mut word;
+    let mut chars;
+    loop {
+        word = word_list.choose(&mut rng).unwrap();
+        chars = word.chars().collect::<HashSet<char>>();
+        if chars.is_subset(allowed) {
+            return Word::from(word);
+        }
+    }
 }
 
 #[throws(ErrorKind)]
@@ -153,7 +159,10 @@ fn main() {
     enable_raw_mode()?;
     execute!(stdout(), cursor::Hide)?;
 
-    let mut test_word = new_test_word();
+    let words = resource_str!("assets/words_alpha.txt");
+    let word_list = words.split_whitespace().collect::<Vec<&str>>();
+    let allowed = "aoeuhtns".chars().collect::<HashSet<char>>();
+    let mut test_word = new_test_word(&word_list, &allowed);
 
     loop {
         if poll(Duration::from_millis(500))? {
@@ -179,7 +188,7 @@ fn main() {
         test_word.print()?;
 
         if test_word.is_complete() {
-            test_word = new_test_word();
+            test_word = new_test_word(&word_list, &allowed);
         }
     }
 
