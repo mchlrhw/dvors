@@ -1,7 +1,7 @@
 use std::{
     collections::HashSet,
     io::{stdout, Write},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use crossterm::{
@@ -10,11 +10,11 @@ use crossterm::{
     execute,
     style::{style, Color, Print, PrintStyledContent, StyledContent},
     terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
-    ErrorKind,
 };
 use fehler::throws;
 use rand::seq::SliceRandom;
 use resource::resource_str;
+use thiserror::Error;
 
 fn map_qwerty_to_dvorak(code: KeyCode) -> KeyCode {
     if let KeyCode::Char(c) = code {
@@ -123,7 +123,7 @@ impl Word {
 
         for (c, tc) in self.word.chars().zip(self.typed.chars()) {
             let styled_c = if c == tc {
-                style(c).with(Color::Yellow)
+                style(c).with(Color::Blue)
             } else {
                 style(c).with(Color::Red)
             };
@@ -133,7 +133,7 @@ impl Word {
         styled
     }
 
-    #[throws(ErrorKind)]
+    #[throws(crossterm::ErrorKind)]
     fn print(&self) {
         for sc in self.styled() {
             execute!(stdout(), PrintStyledContent(sc))?;
@@ -154,7 +154,19 @@ fn new_test_word(word_list: &[&str], allowed: &HashSet<char>) -> Word {
     }
 }
 
-#[throws(ErrorKind)]
+#[derive(Error, Debug)]
+enum MainError {
+    CrosstermError(#[from] crossterm::ErrorKind),
+    SystemTimeError(#[from] std::time::SystemTimeError),
+}
+
+impl std::fmt::Display for MainError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+#[throws(MainError)]
 fn main() {
     enable_raw_mode()?;
     execute!(stdout(), cursor::Hide)?;
@@ -164,8 +176,12 @@ fn main() {
     let allowed = "aoeuhtns".chars().collect::<HashSet<char>>();
     let mut test_word = new_test_word(&word_list, &allowed);
 
+    let start = SystemTime::now();
+    let mut elapsed = 0;
+    let mut total_chars = 0;
+
     loop {
-        if poll(Duration::from_millis(500))? {
+        if poll(Duration::from_millis(100))? {
             if let Event::Key(event) = read()? {
                 if event.code == KeyCode::Esc {
                     break;
@@ -173,11 +189,21 @@ fn main() {
                 let c = map_qwerty_to_dvorak(event.code);
                 match c {
                     KeyCode::Backspace => test_word.remove_char(),
-                    KeyCode::Char(c) => test_word.add_char(c),
+                    KeyCode::Char(c) => {
+                        if c == ' ' && test_word.is_complete() {
+                            elapsed = start.elapsed()?.as_secs();
+                            // Add one for the space character.
+                            total_chars += test_word.word.len() + 1;
+                            test_word = new_test_word(&word_list, &allowed);
+                        } else {
+                            test_word.add_char(c);
+                        }
+                    }
                     _ => {}
                 }
             }
         }
+
         execute!(
             stdout(),
             Clear(ClearType::All),
@@ -185,11 +211,20 @@ fn main() {
             Print(test_word.word.to_string()),
             MoveTo(0, 0),
         )?;
+
         test_word.print()?;
 
-        if test_word.is_complete() {
-            test_word = new_test_word(&word_list, &allowed);
-        }
+        let wpm = if elapsed == 0 {
+            0.0
+        } else {
+            (total_chars as f64 / 5.0) / (elapsed as f64 / 60.0)
+        };
+
+        execute!(
+            stdout(),
+            MoveTo(0, 2),
+            PrintStyledContent(style(format!("{:.0}", wpm)).with(Color::DarkGrey)),
+        )?;
     }
 
     execute!(stdout(), MoveTo(0, 0), Clear(ClearType::All), cursor::Show)?;
