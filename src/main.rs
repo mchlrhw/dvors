@@ -124,7 +124,7 @@ impl<'a> Word<'a> {
             let styled_c = if c == tc {
                 style(c).with(Color::Blue)
             } else {
-                style(c).with(Color::Red)
+                style(tc).with(Color::Red)
             };
             styled.push(styled_c);
         }
