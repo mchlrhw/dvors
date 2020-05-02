@@ -94,14 +94,13 @@ fn map_qwerty_to_dvorak(code: KeyCode) -> KeyCode {
     }
 }
 
-struct Word {
-    word: String,
+struct Word<'a> {
+    word: &'a str,
     typed: String,
 }
 
-impl Word {
-    fn from(word: &str) -> Self {
-        let word = word.to_string();
+impl<'a> Word<'a> {
+    fn from(word: &'a str) -> Self {
         let typed = String::new();
         Self { word, typed }
     }
@@ -141,7 +140,7 @@ impl Word {
     }
 }
 
-fn new_test_word(word_list: &[&str], allowed: &HashSet<char>) -> Word {
+fn new_test_word<'a>(word_list: &[&'a str], allowed: &HashSet<char>) -> Word<'a> {
     let mut rng = rand::thread_rng();
     let mut word;
     let mut chars;
