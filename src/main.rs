@@ -1,11 +1,11 @@
 use std::{
-    collections::HashSet,
+    collections::{HashSet, VecDeque},
     io::{stdout, Write},
     time::{Duration, SystemTime},
 };
 
 use crossterm::{
-    cursor::{self, MoveTo},
+    cursor::{self, MoveTo, RestorePosition, SavePosition},
     event::{poll, read, Event, KeyCode},
     execute,
     style::{style, Color, Print, PrintStyledContent, StyledContent},
@@ -120,37 +120,57 @@ impl<'a> Word<'a> {
     fn styled(&self) -> Vec<StyledContent<char>> {
         let mut styled = vec![];
 
-        for (c, tc) in self.word.chars().zip(self.typed.chars()) {
-            let styled_c = if c == tc {
-                style(c).with(Color::Blue)
+        for (idx, tc) in self.typed.chars().enumerate() {
+            let wc = self.word.chars().nth(idx);
+
+            let color = if wc.is_none() || wc.unwrap() != tc {
+                Color::Red
             } else {
-                style(tc).with(Color::Red)
+                Color::Blue
             };
-            styled.push(styled_c);
+
+            let c = if tc == ' ' {
+                '␣'
+            } else {
+                tc
+            };
+
+            styled.push(style(c).with(color));
         }
 
         styled
     }
 
     #[throws(crossterm::ErrorKind)]
-    fn print(&self) {
+    fn print_typed(&self) {
         for sc in self.styled() {
             execute!(stdout(), PrintStyledContent(sc))?;
         }
     }
 }
 
-fn new_test_word<'a>(word_list: &[&'a str], allowed: &HashSet<char>) -> Word<'a> {
+fn get_test_words<'a>(
+    word_list: &[&'a str],
+    allowed: &HashSet<char>,
+    amount: usize,
+) -> VecDeque<&'a str> {
     let mut rng = rand::thread_rng();
+    let mut words = VecDeque::new();
+
     let mut word;
     let mut chars;
-    loop {
-        word = word_list.choose(&mut rng).unwrap();
-        chars = word.chars().collect::<HashSet<char>>();
-        if chars.is_subset(allowed) {
-            return Word::from(word);
+    for _ in 0..amount {
+        'search: loop {
+            word = word_list.choose(&mut rng).unwrap();
+            chars = word.chars().collect::<HashSet<char>>();
+            if chars.is_subset(allowed) {
+                words.push_back(*word);
+                break 'search;
+            }
         }
     }
+
+    words
 }
 
 #[derive(Error, Debug)]
@@ -173,11 +193,13 @@ fn main() {
     let words = resource_str!("assets/words_alpha.txt");
     let word_list = words.split_whitespace().collect::<Vec<&str>>();
     let allowed = "aoeuhtns".chars().collect::<HashSet<char>>();
-    let mut test_word = new_test_word(&word_list, &allowed);
+    let mut test_words = get_test_words(&word_list, &allowed, 100);
+    let mut test_word = Word::from(test_words.pop_front().unwrap());
 
     let start = SystemTime::now();
     let mut elapsed = 0;
-    let mut total_chars = 0;
+
+    let mut typed = String::new();
 
     loop {
         if poll(Duration::from_millis(100))? {
@@ -190,10 +212,10 @@ fn main() {
                     KeyCode::Backspace => test_word.remove_char(),
                     KeyCode::Char(c) => {
                         if c == ' ' && test_word.is_complete() {
+                            typed.push_str(test_word.word);
+                            typed.push(' ');
                             elapsed = start.elapsed()?.as_secs();
-                            // Add one for the space character.
-                            total_chars += test_word.word.len() + 1;
-                            test_word = new_test_word(&word_list, &allowed);
+                            test_word = Word::from(test_words.pop_front().unwrap());
                         } else {
                             test_word.add_char(c);
                         }
@@ -203,27 +225,20 @@ fn main() {
             }
         }
 
+        let remaining_words = test_words.iter().map(|s| format!(" {}", s)).collect::<String>();
+
         execute!(
             stdout(),
             Clear(ClearType::All),
-            MoveTo(0, 0),
-            Print(test_word.word.to_string()),
-            MoveTo(0, 0),
+            MoveTo(1, 1),
+            PrintStyledContent(style(&typed).with(Color::DarkGrey)),
+            SavePosition,
+            Print(test_word.word),
+            PrintStyledContent(style(remaining_words).with(Color::DarkGrey)),
+            RestorePosition,
         )?;
 
-        test_word.print()?;
-
-        let wpm = if elapsed == 0 {
-            0.0
-        } else {
-            (total_chars as f64 / 5.0) / (elapsed as f64 / 60.0)
-        };
-
-        execute!(
-            stdout(),
-            MoveTo(0, 2),
-            PrintStyledContent(style(format!("{:.0}", wpm)).with(Color::DarkGrey)),
-        )?;
+        test_word.print_typed()?;
     }
 
     execute!(stdout(), MoveTo(0, 0), Clear(ClearType::All), cursor::Show)?;
