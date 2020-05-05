@@ -7,8 +7,8 @@ use std::{
 use crossterm::{
     cursor::{self, MoveTo, RestorePosition, SavePosition},
     event::{poll, read, Event, KeyCode},
-    execute,
-    style::{style, Color, Print, PrintStyledContent, StyledContent},
+    execute, queue,
+    style::{style, Attribute, Color, Print, PrintStyledContent, StyledContent},
     terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
 };
 use fehler::throws;
@@ -129,11 +129,7 @@ impl<'a> Word<'a> {
                 Color::Blue
             };
 
-            let c = if tc == ' ' {
-                '␣'
-            } else {
-                tc
-            };
+            let c = if tc == ' ' { '␣' } else { tc };
 
             styled.push(style(c).with(color));
         }
@@ -144,7 +140,7 @@ impl<'a> Word<'a> {
     #[throws(crossterm::ErrorKind)]
     fn print_typed(&self) {
         for sc in self.styled() {
-            execute!(stdout(), PrintStyledContent(sc))?;
+            queue!(stdout(), PrintStyledContent(sc))?;
         }
     }
 }
@@ -176,6 +172,7 @@ fn get_test_words<'a>(
 #[derive(Error, Debug)]
 enum MainError {
     CrosstermError(#[from] crossterm::ErrorKind),
+    IoError(#[from] std::io::Error),
     SystemTimeError(#[from] std::time::SystemTimeError),
 }
 
@@ -212,10 +209,13 @@ fn main() {
                     KeyCode::Backspace => test_word.remove_char(),
                     KeyCode::Char(c) => {
                         if c == ' ' && test_word.is_complete() {
+                            elapsed = start.elapsed()?.as_secs();
                             typed.push_str(test_word.word);
                             typed.push(' ');
-                            elapsed = start.elapsed()?.as_secs();
-                            test_word = Word::from(test_words.pop_front().unwrap());
+                            test_word = match test_words.pop_front() {
+                                Some(word) => Word::from(word),
+                                None => break,
+                            };
                         } else {
                             test_word.add_char(c);
                         }
@@ -225,13 +225,35 @@ fn main() {
             }
         }
 
-        let remaining_words = test_words.iter().map(|s| format!(" {}", s)).collect::<String>();
+        let wpm = if elapsed == 0 {
+            0.0
+        } else {
+            (typed.chars().count() as f64 / 5.0) / (elapsed as f64 / 60.0)
+        };
+
+        let remaining_words = test_words
+            .iter()
+            .map(|s| format!(" {}", s))
+            .collect::<String>();
 
         execute!(
             stdout(),
             Clear(ClearType::All),
-            MoveTo(1, 1),
+            MoveTo(0, 1),
             PrintStyledContent(style(&typed).with(Color::DarkGrey)),
+            SavePosition,
+            Print(test_word.word.chars().nth(0).unwrap()),
+        )?;
+
+        let (c, r) = cursor::position()?;
+        if c == 1 {
+            queue!(stdout(), MoveTo(0, r))?;
+        } else {
+            queue!(stdout(), RestorePosition)?;
+        }
+
+        queue!(
+            stdout(),
             SavePosition,
             Print(test_word.word),
             PrintStyledContent(style(remaining_words).with(Color::DarkGrey)),
@@ -239,6 +261,25 @@ fn main() {
         )?;
 
         test_word.print_typed()?;
+
+        let color = match wpm as usize {
+            35..=200 => Color::Blue,
+            30..=35 => Color::Yellow,
+            20..=29 => Color::DarkYellow,
+            _ => Color::Red,
+        };
+
+        queue!(
+            stdout(),
+            MoveTo(0, 0),
+            PrintStyledContent(
+                style(format!("{:.0}", wpm))
+                    .with(color)
+                    .attribute(Attribute::Underlined)
+            ),
+        )?;
+
+        stdout().flush()?;
     }
 
     execute!(stdout(), MoveTo(0, 0), Clear(ClearType::All), cursor::Show)?;
