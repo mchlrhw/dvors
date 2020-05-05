@@ -190,7 +190,19 @@ fn main() {
 
     let words = resource_str!("assets/words_alpha.txt");
     let word_list = words.split_whitespace().collect::<Vec<&str>>();
-    let allowed = "aoeuhtns".chars().collect::<HashSet<char>>();
+
+    // Lesson 1 - Home row, 8 keys (starting positions)
+    let lesson_alphabet = "aoeuhtns";
+    // Lesson 2 - Home row, 10 keys
+    // let lesson_alphabet = "aoeuidhtns";
+    // Lesson 3 - Home row + C, F, K, L, M, P, R, V
+    // let lesson_alphabet = "aoeuidhtnscfklmprv";
+    // Lesson 4 - Home row + B, G, J, Q, W, X, Y, Z
+    // let lesson_alphabet = "aoeuidhtnsbgjqwxyz";
+    // Lesson 5 - The entire roman alphabet
+    // let lesson_alphabet = "abcdefghijklmnopqrstuvwxyz";
+    let allowed = lesson_alphabet.chars().collect::<HashSet<char>>();
+
     let mut test_words = get_test_words(&word_list, &allowed, 100);
     let mut test_word = Word::from(test_words.pop_front().unwrap());
 
