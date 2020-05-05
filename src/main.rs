@@ -169,6 +169,7 @@ fn get_test_words<'a>(
     words
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Error, Debug)]
 enum MainError {
     CrosstermError(#[from] crossterm::ErrorKind),
@@ -242,7 +243,7 @@ fn main() {
             MoveTo(0, 1),
             PrintStyledContent(style(&typed).with(Color::DarkGrey)),
             SavePosition,
-            Print(test_word.word.chars().nth(0).unwrap()),
+            Print(test_word.word.chars().next().unwrap()),
         )?;
 
         let (c, r) = cursor::position()?;
@@ -264,7 +265,7 @@ fn main() {
 
         let color = match wpm as usize {
             35..=200 => Color::Blue,
-            30..=35 => Color::Yellow,
+            30..=34 => Color::Yellow,
             20..=29 => Color::DarkYellow,
             _ => Color::Red,
         };
