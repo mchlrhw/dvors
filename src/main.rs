@@ -94,19 +94,32 @@ fn map_qwerty_to_dvorak(code: KeyCode) -> KeyCode {
     }
 }
 
+enum Statistic {
+    Typo { expected: char, typed: char },
+}
+
 struct Word<'a> {
     word: &'a str,
     typed: String,
+    stats: Vec<Statistic>,
 }
 
 impl<'a> Word<'a> {
     fn from(word: &'a str) -> Self {
         let typed = String::new();
-        Self { word, typed }
+        let stats = vec![];
+        Self { word, typed, stats }
     }
 
-    fn add_char(&mut self, c: char) {
-        self.typed.push(c);
+    fn add_char(&mut self, typed: char) {
+        self.typed.push(typed);
+        let expected = self.word.chars().nth(self.typed.len() - 1);
+        if expected.is_some() {
+            let expected = expected.unwrap();
+            if typed != expected {
+                self.stats.push(Statistic::Typo { expected, typed });
+            }
+        }
     }
 
     fn remove_char(&mut self) {
@@ -213,6 +226,7 @@ fn main() {
     let mut wpm_avg = 0.0;
 
     let mut typed = String::new();
+    let mut typos = 0;
 
     loop {
         if poll(Duration::from_millis(100))? {
@@ -225,12 +239,20 @@ fn main() {
                     KeyCode::Backspace => test_word.remove_char(),
                     KeyCode::Char(c) => {
                         if c == ' ' && test_word.is_complete() {
-                            let word_elapsed_mins =
-                                start_word.elapsed()?.as_secs_f64() / 60.0;
+                            let word_elapsed_mins = start_word.elapsed()?.as_secs_f64() / 60.0;
                             let total_elapsed_mins = start.elapsed()?.as_secs_f64() / 60.0;
 
                             typed.push_str(test_word.word);
                             typed.push(' ');
+
+                            typos += test_word
+                                .stats
+                                .iter()
+                                .filter(|s| match s {
+                                    Statistic::Typo { .. } => true,
+                                    _ => false,
+                                })
+                                .count();
 
                             wpm = ((test_word.word.chars().count() + 1) as f64 / 5.0)
                                 / word_elapsed_mins;
@@ -298,6 +320,7 @@ fn main() {
                     .attribute(Attribute::Underlined)
             ),
             Print(format!(" {:.0}", wpm)),
+            Print(format!(" {}", typos)),
         )?;
 
         stdout().flush()?;
