@@ -207,7 +207,10 @@ fn main() {
     let mut test_word = Word::from(test_words.pop_front().unwrap());
 
     let start = SystemTime::now();
-    let mut elapsed = 0;
+    let mut start_word = start;
+
+    let mut wpm = 0.0;
+    let mut wpm_avg = 0.0;
 
     let mut typed = String::new();
 
@@ -222,11 +225,22 @@ fn main() {
                     KeyCode::Backspace => test_word.remove_char(),
                     KeyCode::Char(c) => {
                         if c == ' ' && test_word.is_complete() {
-                            elapsed = start.elapsed()?.as_secs();
+                            let word_elapsed_mins =
+                                start_word.elapsed()?.as_secs_f64() / 60.0;
+                            let total_elapsed_mins = start.elapsed()?.as_secs_f64() / 60.0;
+
                             typed.push_str(test_word.word);
                             typed.push(' ');
+
+                            wpm = ((test_word.word.chars().count() + 1) as f64 / 5.0)
+                                / word_elapsed_mins;
+                            wpm_avg = (typed.chars().count() as f64 / 5.0) / total_elapsed_mins;
+
                             test_word = match test_words.pop_front() {
-                                Some(word) => Word::from(word),
+                                Some(word) => {
+                                    start_word = SystemTime::now();
+                                    Word::from(word)
+                                }
                                 None => break,
                             };
                         } else {
@@ -237,12 +251,6 @@ fn main() {
                 }
             }
         }
-
-        let wpm = if elapsed == 0 {
-            0.0
-        } else {
-            (typed.chars().count() as f64 / 5.0) / (elapsed as f64 / 60.0)
-        };
 
         let remaining_words = test_words
             .iter()
@@ -275,10 +283,9 @@ fn main() {
 
         test_word.print_typed()?;
 
-        let color = match wpm as usize {
-            35..=200 => Color::Blue,
-            30..=34 => Color::Yellow,
-            20..=29 => Color::DarkYellow,
+        let color = match wpm_avg as usize {
+            40..=200 => Color::Blue,
+            20..=39 => Color::Yellow,
             _ => Color::Red,
         };
 
@@ -286,10 +293,11 @@ fn main() {
             stdout(),
             MoveTo(0, 0),
             PrintStyledContent(
-                style(format!("{:.0}", wpm))
+                style(format!("{:.0}", wpm_avg))
                     .with(color)
                     .attribute(Attribute::Underlined)
             ),
+            Print(format!(" {:.0}", wpm)),
         )?;
 
         stdout().flush()?;
