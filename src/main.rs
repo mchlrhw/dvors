@@ -14,7 +14,6 @@ use crossterm::{
 use fehler::throws;
 use rand::seq::SliceRandom;
 use resource::resource_str;
-use thiserror::Error;
 
 fn map_qwerty_to_dvorak(code: KeyCode) -> KeyCode {
     if let KeyCode::Char(c) = code {
@@ -94,8 +93,10 @@ fn map_qwerty_to_dvorak(code: KeyCode) -> KeyCode {
     }
 }
 
+#[derive(Debug, Clone)]
 enum Statistic {
     Typo { expected: char, typed: char },
+    Wpm(f64),
 }
 
 struct Word<'a> {
@@ -128,6 +129,10 @@ impl<'a> Word<'a> {
 
     fn is_complete(&self) -> bool {
         self.word == self.typed
+    }
+
+    fn get_stats(&self) -> Vec<Statistic> {
+        self.stats.clone()
     }
 
     fn styled(&self) -> Vec<StyledContent<char>> {
@@ -183,50 +188,26 @@ fn get_test_words<'a>(
 }
 
 #[allow(clippy::enum_variant_names)]
-#[derive(Error, Debug)]
-enum MainError {
+#[derive(thiserror::Error, Debug)]
+enum Error {
     CrosstermError(#[from] crossterm::ErrorKind),
     IoError(#[from] std::io::Error),
     SystemTimeError(#[from] std::time::SystemTimeError),
 }
 
-impl std::fmt::Display for MainError {
+impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
 }
 
-#[throws(MainError)]
-fn main() {
-    enable_raw_mode()?;
-    execute!(stdout(), cursor::Hide)?;
-
-    let words = resource_str!("assets/words_alpha.txt");
-    let word_list = words.split_whitespace().collect::<Vec<&str>>();
-
-    // Lesson 1 - Home row, 8 keys (starting positions)
-    let lesson_alphabet = "aoeuhtns";
-    // Lesson 2 - Home row, 10 keys
-    // let lesson_alphabet = "aoeuidhtns";
-    // Lesson 3 - Home row + C, F, K, L, M, P, R, V
-    // let lesson_alphabet = "aoeuidhtnscfklmprv";
-    // Lesson 4 - Home row + B, G, J, Q, W, X, Y, Z
-    // let lesson_alphabet = "aoeuidhtnsbgjqwxyz";
-    // Lesson 5 - The entire roman alphabet
-    // let lesson_alphabet = "abcdefghijklmnopqrstuvwxyz";
-    let allowed = lesson_alphabet.chars().collect::<HashSet<char>>();
-
-    let mut test_words = get_test_words(&word_list, &allowed, 100);
+#[throws]
+fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> Vec<Statistic> {
     let mut test_word = Word::from(test_words.pop_front().unwrap());
-
-    let start = SystemTime::now();
-    let mut start_word = start;
-
-    let mut wpm = 0.0;
-    let mut wpm_avg = 0.0;
-
     let mut typed = String::new();
-    let mut typos = 0;
+    let mut stats = vec![];
+
+    let mut start_word = SystemTime::now();
 
     loop {
         if poll(Duration::from_millis(100))? {
@@ -240,23 +221,14 @@ fn main() {
                     KeyCode::Char(c) => {
                         if c == ' ' && test_word.is_complete() {
                             let word_elapsed_mins = start_word.elapsed()?.as_secs_f64() / 60.0;
-                            let total_elapsed_mins = start.elapsed()?.as_secs_f64() / 60.0;
+                            let wpm = ((test_word.word.chars().count() + 1) as f64 / 5.0)
+                                / word_elapsed_mins;
+                            stats.push(Statistic::Wpm(wpm));
+
+                            stats.extend_from_slice(&test_word.get_stats());
 
                             typed.push_str(test_word.word);
                             typed.push(' ');
-
-                            typos += test_word
-                                .stats
-                                .iter()
-                                .filter(|s| match s {
-                                    Statistic::Typo { .. } => true,
-                                    _ => false,
-                                })
-                                .count();
-
-                            wpm = ((test_word.word.chars().count() + 1) as f64 / 5.0)
-                                / word_elapsed_mins;
-                            wpm_avg = (typed.chars().count() as f64 / 5.0) / total_elapsed_mins;
 
                             test_word = match test_words.pop_front() {
                                 Some(word) => {
@@ -305,26 +277,67 @@ fn main() {
 
         test_word.print_typed()?;
 
-        let color = match wpm_avg as usize {
-            40..=200 => Color::Blue,
-            20..=39 => Color::Yellow,
-            _ => Color::Red,
-        };
+        let wpm_count = stats
+            .iter()
+            .filter(|stat| match stat {
+                Statistic::Wpm(_) => true,
+                _ => false,
+            })
+            .count();
+
+        let wpm_sum = stats.iter().fold(0.0, |acc, stat| {
+            if let Statistic::Wpm(wpm) = stat {
+                acc + wpm
+            } else {
+                acc
+            }
+        });
+
+        let wpm_avg = wpm_sum / wpm_count as f64;
+
+        let typos = stats.iter().fold(0, |acc, stat| {
+            if let Statistic::Typo { .. } = stat {
+                acc + 1
+            } else {
+                acc
+            }
+        });
 
         queue!(
             stdout(),
             MoveTo(0, 0),
-            PrintStyledContent(
-                style(format!("{:.0}", wpm_avg))
-                    .with(color)
-                    .attribute(Attribute::Underlined)
-            ),
-            Print(format!(" {:.0}", wpm)),
+            PrintStyledContent(style(format!("{:.0}", wpm_avg)).attribute(Attribute::Underlined)),
             Print(format!(" {}", typos)),
         )?;
 
         stdout().flush()?;
     }
+
+    stats
+}
+
+#[throws]
+fn main() {
+    enable_raw_mode()?;
+    execute!(stdout(), cursor::Hide)?;
+
+    let words = resource_str!("assets/words_alpha.txt");
+    let word_list = words.split_whitespace().collect::<Vec<&str>>();
+
+    // Lesson 1 - Home row, 8 keys (starting positions)
+    let lesson_alphabet = "aoeuhtns";
+    // Lesson 2 - Home row, 10 keys
+    // let lesson_alphabet = "aoeuidhtns";
+    // Lesson 3 - Home row + C, F, K, L, M, P, R, V
+    // let lesson_alphabet = "aoeuidhtnscfklmprv";
+    // Lesson 4 - Home row + B, G, J, Q, W, X, Y, Z
+    // let lesson_alphabet = "aoeuidhtnsbgjqwxyz";
+    // Lesson 5 - The entire roman alphabet
+    // let lesson_alphabet = "abcdefghijklmnopqrstuvwxyz";
+    let allowed = lesson_alphabet.chars().collect::<HashSet<char>>();
+
+    let test_words = get_test_words(&word_list, &allowed, 100);
+    typing_test(test_words);
 
     execute!(stdout(), MoveTo(0, 0), Clear(ClearType::All), cursor::Show)?;
     disable_raw_mode()?;
