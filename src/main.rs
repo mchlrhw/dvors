@@ -115,8 +115,7 @@ impl<'a> Word<'a> {
     fn add_char(&mut self, typed: char) {
         self.typed.push(typed);
         let expected = self.word.chars().nth(self.typed.len() - 1);
-        if expected.is_some() {
-            let expected = expected.unwrap();
+        if let Some(expected) = expected {
             if typed != expected {
                 self.stats.push(Statistic::Typo { expected, typed });
             }
@@ -304,7 +303,7 @@ fn main() {
     // Lesson 3 - Home row + C, F, K, L, M, P, R, V
     // Lesson 4 - Home row + B, G, J, Q, W, X, Y, Z
     // Lesson 5 - The entire roman alphabet
-    for lesson_alphabet in &[
+    'lessons: for lesson_alphabet in &[
         "aoeuhtns",
         "aoeuidhtns",
         "aoeuidhtnscfklmprv",
@@ -359,7 +358,9 @@ fn main() {
         'hold: loop {
             if poll(Duration::from_millis(100))? {
                 if let Event::Key(event) = read()? {
-                    if event.code == KeyCode::Esc || event.code == KeyCode::Enter {
+                    if event.code == KeyCode::Esc {
+                        break 'lessons;
+                    } else if event.code == KeyCode::Enter {
                         break 'hold;
                     }
                 }
