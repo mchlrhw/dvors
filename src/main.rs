@@ -131,7 +131,12 @@ impl<'a> Word<'a> {
         self.word == self.typed
     }
 
-    fn get_stats(self) -> Vec<Statistic> {
+    fn finalise(mut self, duration: Duration) -> Vec<Statistic> {
+        let elapsed_mins = duration.as_secs_f64() / 60.0;
+        let wpm = ((self.chars().count() + 1) as f64 / 5.0) / elapsed_mins;
+
+        self.stats.push(Statistic::Wpm(wpm));
+
         self.stats
     }
 
@@ -231,12 +236,7 @@ fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> Vec<Statistic> {
                             typed.push_str(&test_word);
                             typed.push(' ');
 
-                            let word_elapsed_mins = start_word.elapsed()?.as_secs_f64() / 60.0;
-                            let wpm =
-                                ((test_word.chars().count() + 1) as f64 / 5.0) / word_elapsed_mins;
-
-                            stats.push(Statistic::Wpm(wpm));
-                            stats.extend_from_slice(&test_word.get_stats());
+                            stats.extend_from_slice(&test_word.finalise(start_word.elapsed()?));
 
                             test_word = match test_words.pop_front() {
                                 Some(word) => {
