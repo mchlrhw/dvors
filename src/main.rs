@@ -232,8 +232,8 @@ fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> Vec<Statistic> {
                             typed.push(' ');
 
                             let word_elapsed_mins = start_word.elapsed()?.as_secs_f64() / 60.0;
-                            let wpm = ((test_word.chars().count() + 1) as f64 / 5.0)
-                                / word_elapsed_mins;
+                            let wpm =
+                                ((test_word.chars().count() + 1) as f64 / 5.0) / word_elapsed_mins;
 
                             stats.push(Statistic::Wpm(wpm));
                             stats.extend_from_slice(&test_word.get_stats());
@@ -262,7 +262,7 @@ fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> Vec<Statistic> {
         execute!(
             stdout(),
             Clear(ClearType::All),
-            MoveTo(0, 1),
+            MoveTo(0, 0),
             PrintStyledContent(style(&typed).with(Color::DarkGrey)),
             SavePosition,
             Print(test_word.chars().next().unwrap()),
@@ -285,39 +285,6 @@ fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> Vec<Statistic> {
 
         test_word.print_typed()?;
 
-        let wpm_count = stats
-            .iter()
-            .filter(|stat| match stat {
-                Statistic::Wpm(_) => true,
-                _ => false,
-            })
-            .count();
-
-        let wpm_sum = stats.iter().fold(0.0, |acc, stat| {
-            if let Statistic::Wpm(wpm) = stat {
-                acc + wpm
-            } else {
-                acc
-            }
-        });
-
-        let wpm_avg = wpm_sum / wpm_count as f64;
-
-        let typos = stats.iter().fold(0, |acc, stat| {
-            if let Statistic::Typo { .. } = stat {
-                acc + 1
-            } else {
-                acc
-            }
-        });
-
-        queue!(
-            stdout(),
-            MoveTo(0, 0),
-            PrintStyledContent(style(format!("{:.0}", wpm_avg)).attribute(Attribute::Underlined)),
-            Print(format!(" {}", typos)),
-        )?;
-
         stdout().flush()?;
     }
 
@@ -337,11 +304,67 @@ fn main() {
     // Lesson 3 - Home row + C, F, K, L, M, P, R, V
     // Lesson 4 - Home row + B, G, J, Q, W, X, Y, Z
     // Lesson 5 - The entire roman alphabet
-    for lesson_alphabet in &["aoeuhtns", "aoeuidhtns", "aoeuidhtnscfklmprv", "aoeuidhtnsbgjqwxyz", "abcdefghijklmnopqrstuvwxyz"] {
+    for lesson_alphabet in &[
+        "aoeuhtns",
+        "aoeuidhtns",
+        "aoeuidhtnscfklmprv",
+        "aoeuidhtnsbgjqwxyz",
+        "abcdefghijklmnopqrstuvwxyz",
+    ] {
         let allowed = lesson_alphabet.chars().collect::<HashSet<char>>();
 
         let test_words = get_test_words(&word_list, &allowed, 100);
-        typing_test(test_words)?;
+        let stats = typing_test(test_words)?;
+
+        let wpm_count = stats
+            .iter()
+            .filter(|stat| match stat {
+                Statistic::Wpm(_) => true,
+                _ => false,
+            })
+            .count();
+
+        let wpm_sum = stats.iter().fold(0.0, |acc, stat| {
+            if let Statistic::Wpm(wpm) = stat {
+                acc + wpm
+            } else {
+                acc
+            }
+        });
+
+        let wpm_avg = if wpm_count > 0 {
+            wpm_sum / wpm_count as f64
+        } else {
+            0.0
+        };
+
+        let typos = stats.iter().fold(0, |acc, stat| {
+            if let Statistic::Typo { .. } = stat {
+                acc + 1
+            } else {
+                acc
+            }
+        });
+
+        queue!(
+            stdout(),
+            Clear(ClearType::All),
+            MoveTo(0, 0),
+            PrintStyledContent(style(format!("{:.0}", wpm_avg)).attribute(Attribute::Underlined)),
+            Print(format!(" {}", typos)),
+        )?;
+
+        stdout().flush()?;
+
+        'hold: loop {
+            if poll(Duration::from_millis(100))? {
+                if let Event::Key(event) = read()? {
+                    if event.code == KeyCode::Esc || event.code == KeyCode::Enter {
+                        break 'hold;
+                    }
+                }
+            }
+        }
     }
 
     execute!(stdout(), MoveTo(0, 0), Clear(ClearType::All), cursor::Show)?;
