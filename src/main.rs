@@ -163,6 +163,14 @@ impl<'a> Word<'a> {
     }
 }
 
+impl<'a> std::ops::Deref for Word<'a> {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        self.word
+    }
+}
+
 fn get_test_words<'a>(
     word_list: &[&'a str],
     allowed: &HashSet<char>,
@@ -220,11 +228,11 @@ fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> Vec<Statistic> {
                     KeyCode::Backspace => test_word.remove_char(),
                     KeyCode::Char(c) => {
                         if c == ' ' && test_word.is_complete() {
-                            typed.push_str(test_word.word);
+                            typed.push_str(&test_word);
                             typed.push(' ');
 
                             let word_elapsed_mins = start_word.elapsed()?.as_secs_f64() / 60.0;
-                            let wpm = ((test_word.word.chars().count() + 1) as f64 / 5.0)
+                            let wpm = ((test_word.chars().count() + 1) as f64 / 5.0)
                                 / word_elapsed_mins;
 
                             stats.push(Statistic::Wpm(wpm));
@@ -257,7 +265,7 @@ fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> Vec<Statistic> {
             MoveTo(0, 1),
             PrintStyledContent(style(&typed).with(Color::DarkGrey)),
             SavePosition,
-            Print(test_word.word.chars().next().unwrap()),
+            Print(test_word.chars().next().unwrap()),
         )?;
 
         let (c, r) = cursor::position()?;
@@ -270,7 +278,7 @@ fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> Vec<Statistic> {
         queue!(
             stdout(),
             SavePosition,
-            Print(test_word.word),
+            Print(&*test_word),
             PrintStyledContent(style(remaining_words).with(Color::DarkGrey)),
             RestorePosition,
         )?;
