@@ -131,8 +131,8 @@ impl<'a> Word<'a> {
         self.word == self.typed
     }
 
-    fn get_stats(&self) -> Vec<Statistic> {
-        self.stats.clone()
+    fn get_stats(self) -> Vec<Statistic> {
+        self.stats
     }
 
     fn styled(&self) -> Vec<StyledContent<char>> {
@@ -220,15 +220,15 @@ fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> Vec<Statistic> {
                     KeyCode::Backspace => test_word.remove_char(),
                     KeyCode::Char(c) => {
                         if c == ' ' && test_word.is_complete() {
+                            typed.push_str(test_word.word);
+                            typed.push(' ');
+
                             let word_elapsed_mins = start_word.elapsed()?.as_secs_f64() / 60.0;
                             let wpm = ((test_word.word.chars().count() + 1) as f64 / 5.0)
                                 / word_elapsed_mins;
+
                             stats.push(Statistic::Wpm(wpm));
-
                             stats.extend_from_slice(&test_word.get_stats());
-
-                            typed.push_str(test_word.word);
-                            typed.push(' ');
 
                             test_word = match test_words.pop_front() {
                                 Some(word) => {
@@ -337,7 +337,7 @@ fn main() {
     let allowed = lesson_alphabet.chars().collect::<HashSet<char>>();
 
     let test_words = get_test_words(&word_list, &allowed, 100);
-    typing_test(test_words);
+    typing_test(test_words)?;
 
     execute!(stdout(), MoveTo(0, 0), Clear(ClearType::All), cursor::Show)?;
     disable_raw_mode()?;
