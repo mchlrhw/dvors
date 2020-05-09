@@ -333,19 +333,16 @@ fn main() {
     let word_list = words.split_whitespace().collect::<Vec<&str>>();
 
     // Lesson 1 - Home row, 8 keys (starting positions)
-    let lesson_alphabet = "aoeuhtns";
     // Lesson 2 - Home row, 10 keys
-    // let lesson_alphabet = "aoeuidhtns";
     // Lesson 3 - Home row + C, F, K, L, M, P, R, V
-    // let lesson_alphabet = "aoeuidhtnscfklmprv";
     // Lesson 4 - Home row + B, G, J, Q, W, X, Y, Z
-    // let lesson_alphabet = "aoeuidhtnsbgjqwxyz";
     // Lesson 5 - The entire roman alphabet
-    // let lesson_alphabet = "abcdefghijklmnopqrstuvwxyz";
-    let allowed = lesson_alphabet.chars().collect::<HashSet<char>>();
+    for lesson_alphabet in &["aoeuhtns", "aoeuidhtns", "aoeuidhtnscfklmprv", "aoeuidhtnsbgjqwxyz", "abcdefghijklmnopqrstuvwxyz"] {
+        let allowed = lesson_alphabet.chars().collect::<HashSet<char>>();
 
-    let test_words = get_test_words(&word_list, &allowed, 100);
-    typing_test(test_words)?;
+        let test_words = get_test_words(&word_list, &allowed, 100);
+        typing_test(test_words)?;
+    }
 
     execute!(stdout(), MoveTo(0, 0), Clear(ClearType::All), cursor::Show)?;
     disable_raw_mode()?;
