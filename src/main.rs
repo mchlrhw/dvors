@@ -1,5 +1,7 @@
 use std::{
     collections::{HashSet, VecDeque},
+    convert::From,
+    fmt::{self, Display, Formatter},
     io::{stdout, Write},
     time::{Duration, SystemTime},
 };
@@ -8,7 +10,7 @@ use crossterm::{
     cursor::{self, MoveTo, RestorePosition, SavePosition},
     event::{poll, read, Event, KeyCode},
     execute, queue,
-    style::{style, Attribute, Color, Print, PrintStyledContent, StyledContent},
+    style::{style, Attribute, Color, Print, StyledContent},
     terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
 };
 use fehler::throws;
@@ -112,38 +114,46 @@ enum Metric {
 }
 
 struct Word<'a> {
-    word: &'a str,
+    value: &'a str,
     typed: String,
     metrics: Vec<Metric>,
 }
 
 struct FinishedWord<'a> {
-    word: &'a str,
+    value: &'a str,
     metrics: Vec<Metric>,
 }
 
-impl<'a> std::convert::From<Word<'a>> for FinishedWord<'a> {
+impl<'a> FinishedWord<'a> {
+    fn len(&self) -> usize {
+        self.value.chars().count()
+    }
+
+    fn len_inc_delim(&self) -> usize {
+        self.len() + 1
+    }
+}
+
+impl<'a> From<Word<'a>> for FinishedWord<'a> {
     fn from(word: Word<'a>) -> Self {
         Self {
-            word: word.word,
+            value: word.value,
             metrics: word.metrics,
         }
     }
 }
 
 impl<'a> Word<'a> {
-    fn from(word: &'a str) -> Self {
-        let typed = String::new();
-        let metrics = vec![];
-        Self {
-            word,
-            typed,
-            metrics,
-        }
+    fn as_str(&self) -> &'a str {
+        self.value
+    }
+
+    fn char_at(&self, idx: usize) -> Option<char> {
+        self.value.chars().nth(idx)
     }
 
     fn add_char(&mut self, typed: char, duration: Duration) {
-        let expected = self.word.chars().nth(self.typed.len());
+        let expected = self.char_at(self.typed.len());
         if let Some(expected) = expected {
             if typed != expected {
                 self.metrics.push(Metric::Typo {
@@ -166,7 +176,7 @@ impl<'a> Word<'a> {
     }
 
     fn is_complete(&self) -> bool {
-        self.word == self.typed
+        self.value == self.typed
     }
 
     fn finalise(mut self, typed: char, duration: Duration) -> FinishedWord<'a> {
@@ -181,7 +191,7 @@ impl<'a> Word<'a> {
         let mut styled = vec![];
 
         for (idx, tc) in self.typed.chars().enumerate() {
-            let wc = self.word.chars().nth(idx);
+            let wc = self.char_at(idx);
 
             let color = if wc.is_none() || wc.unwrap() != tc {
                 Color::Red
@@ -196,20 +206,26 @@ impl<'a> Word<'a> {
 
         styled
     }
+}
 
-    #[throws(crossterm::ErrorKind)]
-    fn print_typed(&self) {
-        for sc in self.styled() {
-            queue!(stdout(), PrintStyledContent(sc))?;
+impl<'a> From<&'a str> for Word<'a> {
+    fn from(string: &'a str) -> Self {
+        let typed = String::new();
+        let metrics = vec![];
+        Self {
+            value: string,
+            typed,
+            metrics,
         }
     }
 }
 
-impl<'a> std::ops::Deref for Word<'a> {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        self.word
+impl Display for Word<'_> {
+    #[throws(fmt::Error)]
+    fn fmt(&self, f: &mut Formatter<'_>) {
+        for sc in self.styled() {
+            write!(f, "{}", sc)?;
+        }
     }
 }
 
@@ -245,14 +261,56 @@ enum Error {
     SystemTimeError(#[from] std::time::SystemTimeError),
 }
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+impl Display for Error {
+    #[throws(fmt::Error)]
+    fn fmt(&self, f: &mut Formatter<'_>) {
+        write!(f, "{:?}", self)?;
+    }
+}
+
+struct TestResults<'a>(Vec<FinishedWord<'a>>);
+
+impl TestResults<'_> {
+    fn wpm_avg(&self) -> f64 {
+        let char_cnt = self
+            .0
+            .iter()
+            .fold(0, |acc, word| acc + word.len_inc_delim());
+        let word_cnt = char_cnt as f64 / 5.0;
+
+        let duration = self.0.iter().fold(Duration::default(), |acc, word| {
+            acc + word
+                .metrics
+                .iter()
+                .fold(Duration::default(), |acc, metric| match metric {
+                    Metric::Delimiter { duration, .. }
+                    | Metric::Match { duration, .. }
+                    | Metric::Typo { duration, .. } => acc + *duration,
+                })
+        });
+
+        if !self.0.is_empty() {
+            word_cnt / (duration.as_secs_f64() / 60.0)
+        } else {
+            0.0
+        }
+    }
+
+    fn typo_cnt(&self) -> usize {
+        self.0.iter().fold(0, |acc, word| {
+            acc + word.metrics.iter().fold(0, |acc, metric| {
+                if let Metric::Typo { .. } = metric {
+                    acc + 1
+                } else {
+                    acc
+                }
+            })
+        })
     }
 }
 
 #[throws]
-fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> Vec<FinishedWord> {
+fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> TestResults {
     let mut test_word = Word::from(test_words.pop_front().unwrap());
     let mut typed = String::new();
     let mut finished_words = vec![];
@@ -270,7 +328,7 @@ fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> Vec<FinishedWord> {
                     KeyCode::Backspace => test_word.remove_char(),
                     KeyCode::Char(c) => {
                         if c == ' ' && test_word.is_complete() {
-                            typed.push_str(&test_word);
+                            typed.push_str(test_word.as_str());
                             typed.push(' ');
 
                             let finished_word = test_word.finalise(c, start_char.elapsed()?);
@@ -279,7 +337,7 @@ fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> Vec<FinishedWord> {
                             test_word = match test_words.pop_front() {
                                 Some(word) => {
                                     start_char = SystemTime::now();
-                                    Word::from(word)
+                                    word.into()
                                 }
                                 None => break,
                             };
@@ -302,9 +360,9 @@ fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> Vec<FinishedWord> {
             stdout(),
             Clear(ClearType::All),
             MoveTo(0, 0),
-            PrintStyledContent(style(&typed).with(Color::DarkGrey)),
+            Print(style(&typed).with(Color::DarkGrey)),
             SavePosition,
-            Print(test_word.chars().next().unwrap()),
+            Print(test_word.char_at(0).unwrap()),
         )?;
 
         let (c, r) = cursor::position()?;
@@ -317,17 +375,16 @@ fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> Vec<FinishedWord> {
         queue!(
             stdout(),
             SavePosition,
-            Print(&*test_word),
-            PrintStyledContent(style(remaining_words).with(Color::DarkGrey)),
+            Print(test_word.as_str()),
+            Print(style(remaining_words).with(Color::DarkGrey)),
             RestorePosition,
+            Print(&test_word),
         )?;
-
-        test_word.print_typed()?;
 
         stdout().flush()?;
     }
 
-    finished_words
+    TestResults(finished_words)
 }
 
 #[throws]
@@ -353,51 +410,14 @@ fn main() {
         let allowed = lesson_alphabet.chars().collect::<HashSet<char>>();
 
         let test_words = get_test_words(&word_list, &allowed, 100);
-        let finished_words = typing_test(test_words)?;
-
-        let word_cnt: f64 = (finished_words
-            .iter()
-            .fold(0, |acc, word| acc + word.word.chars().count())
-            as f64
-            + finished_words.len() as f64)
-            / 5.0;
-
-        let duration = finished_words
-            .iter()
-            .fold(Duration::default(), |acc, word| {
-                acc + word
-                    .metrics
-                    .iter()
-                    .fold(Duration::default(), |acc, metric| match metric {
-                        Metric::Delimiter { duration, .. }
-                        | Metric::Match { duration, .. }
-                        | Metric::Typo { duration, .. } => acc + *duration,
-                        _ => acc,
-                    })
-            });
-
-        let wpm_avg = if !finished_words.is_empty() {
-            word_cnt / (duration.as_secs_f64() / 60.0)
-        } else {
-            0.0
-        };
-
-        let typos = finished_words.iter().fold(0, |acc, word| {
-            acc + word.metrics.iter().fold(0, |acc, metric| {
-                if let Metric::Typo { .. } = metric {
-                    acc + 1
-                } else {
-                    acc
-                }
-            })
-        });
+        let test_results = typing_test(test_words)?;
 
         queue!(
             stdout(),
             Clear(ClearType::All),
             MoveTo(0, 0),
-            PrintStyledContent(style(format!("{:.0}", wpm_avg)).attribute(Attribute::Underlined)),
-            Print(format!(" {}\r\n", typos)),
+            Print(style(format!("{:.0}", test_results.wpm_avg())).attribute(Attribute::Underlined)),
+            Print(format!(" {}", test_results.typo_cnt())),
         )?;
 
         stdout().flush()?;
