@@ -94,7 +94,7 @@ fn map_qwerty_to_dvorak(code: KeyCode) -> KeyCode {
 }
 
 #[derive(Debug, Clone)]
-enum Statistic {
+enum Metric {
     Typo { expected: char, typed: char },
     Wpm(f64),
 }
@@ -102,14 +102,14 @@ enum Statistic {
 struct Word<'a> {
     word: &'a str,
     typed: String,
-    stats: Vec<Statistic>,
+    metrics: Vec<Metric>,
 }
 
 impl<'a> Word<'a> {
     fn from(word: &'a str) -> Self {
         let typed = String::new();
-        let stats = vec![];
-        Self { word, typed, stats }
+        let metrics = vec![];
+        Self { word, typed, metrics }
     }
 
     fn add_char(&mut self, typed: char) {
@@ -117,7 +117,7 @@ impl<'a> Word<'a> {
         let expected = self.word.chars().nth(self.typed.len() - 1);
         if let Some(expected) = expected {
             if typed != expected {
-                self.stats.push(Statistic::Typo { expected, typed });
+                self.metrics.push(Metric::Typo { expected, typed });
             }
         }
     }
@@ -130,13 +130,13 @@ impl<'a> Word<'a> {
         self.word == self.typed
     }
 
-    fn finalise(mut self, duration: Duration) -> Vec<Statistic> {
+    fn finalise(mut self, duration: Duration) -> Vec<Metric> {
         let elapsed_mins = duration.as_secs_f64() / 60.0;
         let wpm = ((self.chars().count() + 1) as f64 / 5.0) / elapsed_mins;
 
-        self.stats.push(Statistic::Wpm(wpm));
+        self.metrics.push(Metric::Wpm(wpm));
 
-        self.stats
+        self.metrics
     }
 
     fn styled(&self) -> Vec<StyledContent<char>> {
@@ -214,10 +214,10 @@ impl std::fmt::Display for Error {
 }
 
 #[throws]
-fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> Vec<Statistic> {
+fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> Vec<Metric> {
     let mut test_word = Word::from(test_words.pop_front().unwrap());
     let mut typed = String::new();
-    let mut stats = vec![];
+    let mut metrics = vec![];
 
     let mut start_word = SystemTime::now();
 
@@ -235,7 +235,7 @@ fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> Vec<Statistic> {
                             typed.push_str(&test_word);
                             typed.push(' ');
 
-                            stats.extend_from_slice(&test_word.finalise(start_word.elapsed()?));
+                            metrics.extend_from_slice(&test_word.finalise(start_word.elapsed()?));
 
                             test_word = match test_words.pop_front() {
                                 Some(word) => {
@@ -287,7 +287,7 @@ fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> Vec<Statistic> {
         stdout().flush()?;
     }
 
-    stats
+    metrics
 }
 
 #[throws]
@@ -313,18 +313,18 @@ fn main() {
         let allowed = lesson_alphabet.chars().collect::<HashSet<char>>();
 
         let test_words = get_test_words(&word_list, &allowed, 100);
-        let stats = typing_test(test_words)?;
+        let metrics = typing_test(test_words)?;
 
-        let wpm_count = stats
+        let wpm_count = metrics
             .iter()
-            .filter(|stat| match stat {
-                Statistic::Wpm(_) => true,
+            .filter(|metric| match metric {
+                Metric::Wpm(_) => true,
                 _ => false,
             })
             .count();
 
-        let wpm_sum = stats.iter().fold(0.0, |acc, stat| {
-            if let Statistic::Wpm(wpm) = stat {
+        let wpm_sum = metrics.iter().fold(0.0, |acc, metric| {
+            if let Metric::Wpm(wpm) = metric {
                 acc + wpm
             } else {
                 acc
@@ -337,8 +337,8 @@ fn main() {
             0.0
         };
 
-        let typos = stats.iter().fold(0, |acc, stat| {
-            if let Statistic::Typo { .. } = stat {
+        let typos = metrics.iter().fold(0, |acc, metric| {
+            if let Metric::Typo { .. } = metric {
                 acc + 1
             } else {
                 acc
