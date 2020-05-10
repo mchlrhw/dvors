@@ -94,9 +94,21 @@ fn map_qwerty_to_dvorak(code: KeyCode) -> KeyCode {
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 enum Metric {
-    Typo { expected: char, typed: char },
-    Wpm(f64),
+    Delimiter {
+        value: char,
+        duration: Duration,
+    },
+    Match {
+        value: char,
+        duration: Duration,
+    },
+    Typo {
+        expected: char,
+        typed: char,
+        duration: Duration,
+    },
 }
 
 struct Word<'a> {
@@ -105,21 +117,48 @@ struct Word<'a> {
     metrics: Vec<Metric>,
 }
 
+struct FinishedWord<'a> {
+    word: &'a str,
+    metrics: Vec<Metric>,
+}
+
+impl<'a> std::convert::From<Word<'a>> for FinishedWord<'a> {
+    fn from(word: Word<'a>) -> Self {
+        Self {
+            word: word.word,
+            metrics: word.metrics,
+        }
+    }
+}
+
 impl<'a> Word<'a> {
     fn from(word: &'a str) -> Self {
         let typed = String::new();
         let metrics = vec![];
-        Self { word, typed, metrics }
+        Self {
+            word,
+            typed,
+            metrics,
+        }
     }
 
-    fn add_char(&mut self, typed: char) {
-        self.typed.push(typed);
-        let expected = self.word.chars().nth(self.typed.len() - 1);
+    fn add_char(&mut self, typed: char, duration: Duration) {
+        let expected = self.word.chars().nth(self.typed.len());
         if let Some(expected) = expected {
             if typed != expected {
-                self.metrics.push(Metric::Typo { expected, typed });
+                self.metrics.push(Metric::Typo {
+                    expected,
+                    typed,
+                    duration,
+                });
+            } else {
+                self.metrics.push(Metric::Match {
+                    value: typed,
+                    duration,
+                });
             }
         }
+        self.typed.push(typed);
     }
 
     fn remove_char(&mut self) {
@@ -130,13 +169,12 @@ impl<'a> Word<'a> {
         self.word == self.typed
     }
 
-    fn finalise(mut self, duration: Duration) -> Vec<Metric> {
-        let elapsed_mins = duration.as_secs_f64() / 60.0;
-        let wpm = ((self.chars().count() + 1) as f64 / 5.0) / elapsed_mins;
-
-        self.metrics.push(Metric::Wpm(wpm));
-
-        self.metrics
+    fn finalise(mut self, typed: char, duration: Duration) -> FinishedWord<'a> {
+        self.metrics.push(Metric::Delimiter {
+            value: typed,
+            duration,
+        });
+        self.into()
     }
 
     fn styled(&self) -> Vec<StyledContent<char>> {
@@ -214,12 +252,12 @@ impl std::fmt::Display for Error {
 }
 
 #[throws]
-fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> Vec<Metric> {
+fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> Vec<FinishedWord> {
     let mut test_word = Word::from(test_words.pop_front().unwrap());
     let mut typed = String::new();
-    let mut metrics = vec![];
+    let mut finished_words = vec![];
 
-    let mut start_word = SystemTime::now();
+    let mut start_char = SystemTime::now();
 
     loop {
         if poll(Duration::from_millis(100))? {
@@ -235,17 +273,19 @@ fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> Vec<Metric> {
                             typed.push_str(&test_word);
                             typed.push(' ');
 
-                            metrics.extend_from_slice(&test_word.finalise(start_word.elapsed()?));
+                            let finished_word = test_word.finalise(c, start_char.elapsed()?);
+                            finished_words.push(finished_word);
 
                             test_word = match test_words.pop_front() {
                                 Some(word) => {
-                                    start_word = SystemTime::now();
+                                    start_char = SystemTime::now();
                                     Word::from(word)
                                 }
                                 None => break,
                             };
                         } else {
-                            test_word.add_char(c);
+                            test_word.add_char(c, start_char.elapsed()?);
+                            start_char = SystemTime::now();
                         }
                     }
                     _ => {}
@@ -287,7 +327,7 @@ fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> Vec<Metric> {
         stdout().flush()?;
     }
 
-    metrics
+    finished_words
 }
 
 #[throws]
@@ -313,36 +353,43 @@ fn main() {
         let allowed = lesson_alphabet.chars().collect::<HashSet<char>>();
 
         let test_words = get_test_words(&word_list, &allowed, 100);
-        let metrics = typing_test(test_words)?;
+        let finished_words = typing_test(test_words)?;
 
-        let wpm_count = metrics
+        let word_cnt: f64 = (finished_words
             .iter()
-            .filter(|metric| match metric {
-                Metric::Wpm(_) => true,
-                _ => false,
-            })
-            .count();
+            .fold(0, |acc, word| acc + word.word.chars().count())
+            as f64
+            + finished_words.len() as f64)
+            / 5.0;
 
-        let wpm_sum = metrics.iter().fold(0.0, |acc, metric| {
-            if let Metric::Wpm(wpm) = metric {
-                acc + wpm
-            } else {
-                acc
-            }
-        });
+        let duration = finished_words
+            .iter()
+            .fold(Duration::default(), |acc, word| {
+                acc + word
+                    .metrics
+                    .iter()
+                    .fold(Duration::default(), |acc, metric| match metric {
+                        Metric::Delimiter { duration, .. }
+                        | Metric::Match { duration, .. }
+                        | Metric::Typo { duration, .. } => acc + *duration,
+                        _ => acc,
+                    })
+            });
 
-        let wpm_avg = if wpm_count > 0 {
-            wpm_sum / wpm_count as f64
+        let wpm_avg = if !finished_words.is_empty() {
+            word_cnt / (duration.as_secs_f64() / 60.0)
         } else {
             0.0
         };
 
-        let typos = metrics.iter().fold(0, |acc, metric| {
-            if let Metric::Typo { .. } = metric {
-                acc + 1
-            } else {
-                acc
-            }
+        let typos = finished_words.iter().fold(0, |acc, word| {
+            acc + word.metrics.iter().fold(0, |acc, metric| {
+                if let Metric::Typo { .. } = metric {
+                    acc + 1
+                } else {
+                    acc
+                }
+            })
         });
 
         queue!(
@@ -350,7 +397,7 @@ fn main() {
             Clear(ClearType::All),
             MoveTo(0, 0),
             PrintStyledContent(style(format!("{:.0}", wpm_avg)).attribute(Attribute::Underlined)),
-            Print(format!(" {}", typos)),
+            Print(format!(" {}\r\n", typos)),
         )?;
 
         stdout().flush()?;
