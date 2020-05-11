@@ -1,0 +1,19 @@
+use std::time::Duration;
+
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum Metric {
+    Delimiter {
+        value: char,
+        duration: Duration,
+    },
+    Match {
+        value: char,
+        duration: Duration,
+    },
+    Typo {
+        value: char,
+        expected: char,
+        duration: Duration,
+    },
+}
