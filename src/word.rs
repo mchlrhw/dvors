@@ -6,6 +6,7 @@ use fehler::throws;
 
 use crate::metrics::Metric;
 
+#[derive(Debug, PartialEq)]
 pub(crate) struct Word<'a> {
     value: &'a str,
     typed: String,
@@ -123,5 +124,44 @@ impl Display for Word<'_> {
         for sc in self.styled() {
             write!(f, "{}", sc)?;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_match_metric() {
+        let mut word: Word = "test".into();
+        let expected = Word {
+            value: "test",
+            typed: "t".to_string(),
+            metrics: vec![Metric::Match {
+                value: 't',
+                duration: Duration::from_secs(1),
+            }],
+        };
+
+        word.add_char('t', Duration::from_secs(1));
+
+        assert_eq!(word, expected);
+    }
+    #[test]
+    fn test_generate_typo_metric() {
+        let mut word: Word = "test".into();
+        let expected = Word {
+            value: "test",
+            typed: "e".to_string(),
+            metrics: vec![Metric::Typo {
+                value: 'e',
+                expected: 't',
+                duration: Duration::from_secs(1),
+            }],
+        };
+
+        word.add_char('e', Duration::from_secs(1));
+
+        assert_eq!(word, expected);
     }
 }

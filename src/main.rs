@@ -112,7 +112,7 @@ fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> TestResults {
             .map(|s| format!(" {}", s))
             .collect::<String>();
 
-        execute!(
+        queue!(
             stdout(),
             Clear(ClearType::All),
             MoveTo(0, 0),
