@@ -10,3 +10,4 @@ fehler = "1.0"
 rand = "0.7"
 resource = "0.4"
 thiserror = "1.0"
+tui = {version = "0.9", features = ["crossterm"]}

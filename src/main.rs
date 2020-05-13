@@ -11,15 +11,21 @@ use std::{
 };
 
 use crossterm::{
-    cursor::{self, MoveTo, RestorePosition, SavePosition},
+    cursor::{self, MoveTo},
     event::{poll, read, Event, KeyCode},
     execute, queue,
-    style::{style, Attribute, Color, Print},
+    style::{style, Attribute, Print},
     terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
 };
 use fehler::throws;
 use rand::seq::SliceRandom;
 use resource::resource_str;
+use tui::{
+    backend::CrosstermBackend,
+    style::{Color, Style},
+    widgets::{Block, Paragraph, Text},
+    Terminal,
+};
 
 use metrics::Metric;
 use word::{FinishedWord, Word};
@@ -67,6 +73,10 @@ impl TestResults<'_> {
 
 #[throws]
 fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> TestResults {
+    let backend = CrosstermBackend::new(stdout());
+    let mut terminal = Terminal::new(backend)?;
+    terminal.clear()?;
+
     let mut test_word = Word::from(test_words.pop_front().unwrap());
     let mut typed = String::new();
     let mut finished_words = vec![];
@@ -74,6 +84,27 @@ fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> TestResults {
     let mut start_char = SystemTime::now();
 
     loop {
+        terminal.draw(|mut frame| {
+            let size = frame.size();
+
+            let remaining_words = test_words
+                .iter()
+                .map(|s| format!(" {}", s))
+                .collect::<String>()
+                .chars()
+                .skip(test_word.overflow())
+                .collect::<String>();
+
+            let mut text = vec![
+                Text::styled(&typed, Style::default().fg(Color::DarkGray)),
+            ];
+            text.extend_from_slice(&test_word.styled_text());
+            text.push(Text::styled(remaining_words, Style::default().fg(Color::DarkGray)));
+
+            let paragraph = Paragraph::new(text.iter()).block(Block::default()).wrap(true);
+            frame.render_widget(paragraph, size);
+        })?;
+
         if poll(Duration::from_millis(100))? {
             if let Event::Key(event) = read()? {
                 if event.code == KeyCode::Esc {
@@ -106,38 +137,6 @@ fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> TestResults {
                 }
             }
         }
-
-        let remaining_words = test_words
-            .iter()
-            .map(|s| format!(" {}", s))
-            .collect::<String>();
-
-        queue!(
-            stdout(),
-            Clear(ClearType::All),
-            MoveTo(0, 0),
-            Print(style(&typed).with(Color::DarkGrey)),
-            SavePosition,
-            Print(test_word.char_at(0).unwrap()),
-        )?;
-
-        let (c, r) = cursor::position()?;
-        if c == 1 {
-            queue!(stdout(), MoveTo(0, r))?;
-        } else {
-            queue!(stdout(), RestorePosition)?;
-        }
-
-        queue!(
-            stdout(),
-            SavePosition,
-            Print(test_word.as_str()),
-            Print(style(remaining_words).with(Color::DarkGrey)),
-            RestorePosition,
-            Print(&test_word),
-        )?;
-
-        stdout().flush()?;
     }
 
     TestResults(finished_words)

@@ -1,8 +1,6 @@
-use std::fmt::{self, Display, Formatter};
 use std::time::Duration;
 
-use crossterm::style::{style, Color, StyledContent};
-use fehler::throws;
+use tui::{widgets::Text, style::{Style, Color}};
 
 use crate::metrics::Metric;
 
@@ -50,6 +48,18 @@ impl<'a> Word<'a> {
         self.value.chars().nth(idx)
     }
 
+    pub fn len(&self) -> usize {
+        self.value.chars().count()
+    }
+
+    pub fn typed_len(&self) -> usize {
+        self.typed.chars().count()
+    }
+
+    pub fn overflow(&self) -> usize {
+        self.typed_len().saturating_sub(self.len())
+    }
+
     pub fn add_char(&mut self, typed: char, duration: Duration) {
         let expected = self.char_at(self.typed.len());
         if let Some(expected) = expected {
@@ -85,9 +95,10 @@ impl<'a> Word<'a> {
         self.into()
     }
 
-    fn styled(&self) -> Vec<StyledContent<char>> {
+    pub fn styled_text(&self) -> Vec<Text> {
         let mut styled = vec![];
 
+        // Display the typed characters.
         for (idx, tc) in self.typed.chars().enumerate() {
             let wc = self.char_at(idx);
 
@@ -99,7 +110,14 @@ impl<'a> Word<'a> {
 
             let c = if tc == ' ' { '␣' } else { tc };
 
-            styled.push(style(c).with(color));
+            styled.push(Text::styled(c.to_string(), Style::default().fg(color)));
+        }
+
+        // Fill in the untyped characters.
+        for idx in self.typed_len()..self.len() {
+            if let Some(c) = self.char_at(idx) {
+                styled.push(Text::raw(c.to_string()));
+            }
         }
 
         styled
@@ -114,15 +132,6 @@ impl<'a> From<&'a str> for Word<'a> {
             value: string,
             typed,
             metrics,
-        }
-    }
-}
-
-impl Display for Word<'_> {
-    #[throws(fmt::Error)]
-    fn fmt(&self, f: &mut Formatter<'_>) {
-        for sc in self.styled() {
-            write!(f, "{}", sc)?;
         }
     }
 }
