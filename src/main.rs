@@ -11,19 +11,18 @@ use std::{
 };
 
 use crossterm::{
-    cursor::{self, MoveTo},
     event::{poll, read, Event, KeyCode},
-    execute, queue,
-    style::{style, Attribute, Print},
-    terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use fehler::throws;
 use rand::seq::SliceRandom;
 use resource::resource_str;
 use tui::{
     backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
     style::{Color, Style},
-    widgets::{Block, Paragraph, Text},
+    widgets::{Block, Borders, Paragraph, Text},
     Terminal,
 };
 
@@ -72,11 +71,10 @@ impl TestResults<'_> {
 }
 
 #[throws]
-fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> TestResults {
-    let backend = CrosstermBackend::new(stdout());
-    let mut terminal = Terminal::new(backend)?;
-    terminal.clear()?;
-
+fn typing_test<'a, 'b, B: tui::backend::Backend>(
+    terminal: &'b mut Terminal<B>,
+    mut test_words: VecDeque<&'a str>,
+) -> TestResults<'a> {
     let mut test_word = Word::from(test_words.pop_front().unwrap());
     let mut typed = String::new();
     let mut finished_words = vec![];
@@ -95,13 +93,17 @@ fn typing_test<'a>(mut test_words: VecDeque<&'a str>) -> TestResults {
                 .skip(test_word.overflow())
                 .collect::<String>();
 
-            let mut text = vec![
-                Text::styled(&typed, Style::default().fg(Color::DarkGray)),
-            ];
+            let mut text = vec![Text::styled(&typed, Style::default().fg(Color::DarkGray))];
             text.extend_from_slice(&test_word.styled_text());
-            text.push(Text::styled(remaining_words, Style::default().fg(Color::DarkGray)));
+            text.push(Text::styled(
+                remaining_words,
+                Style::default().fg(Color::DarkGray),
+            ));
 
-            let paragraph = Paragraph::new(text.iter()).block(Block::default()).wrap(true);
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray));
+            let paragraph = Paragraph::new(text.iter()).block(block).wrap(true);
             frame.render_widget(paragraph, size);
         })?;
 
@@ -183,8 +185,13 @@ impl Display for Error {
 
 #[throws]
 fn main() {
+    execute!(stdout(), EnterAlternateScreen)?;
     enable_raw_mode()?;
-    execute!(stdout(), cursor::Hide)?;
+
+    let backend = CrosstermBackend::new(stdout());
+    let mut terminal = Terminal::new(backend)?;
+    terminal.autoresize()?;
+    terminal.hide_cursor()?;
 
     let words = resource_str!("assets/words_alpha.txt");
     let word_list = words.split_whitespace().collect::<Vec<&str>>();
@@ -204,17 +211,32 @@ fn main() {
         let allowed = lesson_alphabet.chars().collect::<HashSet<char>>();
 
         let test_words = get_test_words(&word_list, &allowed, 100);
-        let test_results = typing_test(test_words)?;
+        let test_results = typing_test(&mut terminal, test_words)?;
 
-        queue!(
-            stdout(),
-            Clear(ClearType::All),
-            MoveTo(0, 0),
-            Print(style(format!("{:.0}", test_results.wpm_avg())).attribute(Attribute::Underlined)),
-            Print(format!(" {}", test_results.typo_cnt())),
-        )?;
+        terminal.draw(|mut frame| {
+            let chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+                .split(frame.size());
 
-        stdout().flush()?;
+            let block = Block::default()
+                .title("wpm")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(block, chunks[0]);
+            let text = [Text::raw(format!("{:.0}", test_results.wpm_avg()))];
+            let paragraph = Paragraph::new(text.iter()).block(block);
+            frame.render_widget(paragraph, chunks[0]);
+
+            let block = Block::default()
+                .title("typos")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(block, chunks[1]);
+            let text = [Text::raw(format!("{}", test_results.typo_cnt()))];
+            let paragraph = Paragraph::new(text.iter()).block(block);
+            frame.render_widget(paragraph, chunks[1]);
+        })?;
 
         'hold: loop {
             if poll(Duration::from_millis(100))? {
@@ -229,6 +251,6 @@ fn main() {
         }
     }
 
-    execute!(stdout(), MoveTo(0, 0), Clear(ClearType::All), cursor::Show)?;
     disable_raw_mode()?;
+    execute!(stdout(), LeaveAlternateScreen)?;
 }

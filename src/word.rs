@@ -1,6 +1,9 @@
 use std::time::Duration;
 
-use tui::{widgets::Text, style::{Style, Color}};
+use tui::{
+    style::{Color, Style},
+    widgets::Text,
+};
 
 use crate::metrics::Metric;
 
