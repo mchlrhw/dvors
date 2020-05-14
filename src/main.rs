@@ -11,7 +11,7 @@ use std::{
 };
 
 use crossterm::{
-    event::{poll, read, Event, KeyCode},
+    event::{read, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -32,13 +32,17 @@ use word::{FinishedWord, Word};
 struct TestResults<'a>(Vec<FinishedWord<'a>>);
 
 impl TestResults<'_> {
-    fn wpm_avg(&self) -> f64 {
-        let char_cnt = self
-            .0
-            .iter()
-            .fold(0, |acc, word| acc + word.len_inc_delim());
-        let word_cnt = char_cnt as f64 / 5.0;
+    fn word_cnt(&self) -> usize {
+        self.0.len()
+    }
 
+    fn char_cnt(&self) -> usize {
+        self.0
+            .iter()
+            .fold(0, |acc, word| acc + word.len_inc_delim())
+    }
+
+    fn duration_secs(&self) -> f64 {
         let duration = self.0.iter().fold(Duration::default(), |acc, word| {
             acc + word
                 .metrics()
@@ -50,8 +54,14 @@ impl TestResults<'_> {
                 })
         });
 
+        duration.as_secs_f64()
+    }
+
+    fn wpm_avg(&self) -> f64 {
+        let word_cnt = self.char_cnt() as f64 / 5.0;
+
         if !self.0.is_empty() {
-            word_cnt / (duration.as_secs_f64() / 60.0)
+            word_cnt / (self.duration_secs() / 60.0)
         } else {
             0.0
         }
@@ -212,28 +222,72 @@ fn main() {
         let test_results = typing_test(&mut terminal, test_words)?;
 
         terminal.draw(|mut frame| {
-            let chunks = Layout::default()
-                .direction(Direction::Horizontal)
+            let rows = Layout::default()
+                .direction(Direction::Vertical)
                 .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
                 .split(frame.size());
+
+            let row_0_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+                .split(rows[0]);
+
+            let row_1_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints(
+                    [
+                        Constraint::Percentage(33),
+                        Constraint::Percentage(33),
+                        Constraint::Percentage(33),
+                    ]
+                    .as_ref(),
+                )
+                .split(rows[1]);
 
             let block = Block::default()
                 .title("wpm")
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::DarkGray));
-            frame.render_widget(block, chunks[0]);
+            frame.render_widget(block, row_0_chunks[0]);
             let text = [Text::raw(format!("{:.0}", test_results.wpm_avg()))];
             let paragraph = Paragraph::new(text.iter()).block(block);
-            frame.render_widget(paragraph, chunks[0]);
+            frame.render_widget(paragraph, row_0_chunks[0]);
 
             let block = Block::default()
                 .title("typos")
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::DarkGray));
-            frame.render_widget(block, chunks[1]);
+            frame.render_widget(block, row_0_chunks[1]);
             let text = [Text::raw(format!("{}", test_results.typo_cnt()))];
             let paragraph = Paragraph::new(text.iter()).block(block);
-            frame.render_widget(paragraph, chunks[1]);
+            frame.render_widget(paragraph, row_0_chunks[1]);
+
+            let block = Block::default()
+                .title("words typed")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(block, row_1_chunks[0]);
+            let text = [Text::raw(format!("{}", test_results.word_cnt()))];
+            let paragraph = Paragraph::new(text.iter()).block(block);
+            frame.render_widget(paragraph, row_1_chunks[0]);
+
+            let block = Block::default()
+                .title("characters typed")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(block, row_1_chunks[1]);
+            let text = [Text::raw(format!("{}", test_results.char_cnt()))];
+            let paragraph = Paragraph::new(text.iter()).block(block);
+            frame.render_widget(paragraph, row_1_chunks[1]);
+
+            let block = Block::default()
+                .title("total seconds")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(block, row_1_chunks[2]);
+            let text = [Text::raw(format!("{:.1}", test_results.duration_secs()))];
+            let paragraph = Paragraph::new(text.iter()).block(block);
+            frame.render_widget(paragraph, row_1_chunks[2]);
         })?;
 
         'hold: loop {
