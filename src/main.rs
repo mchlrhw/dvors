@@ -107,36 +107,34 @@ fn typing_test<'a, 'b, B: tui::backend::Backend>(
             frame.render_widget(paragraph, size);
         })?;
 
-        if poll(Duration::from_millis(100))? {
-            if let Event::Key(event) = read()? {
-                if event.code == KeyCode::Esc {
-                    break;
-                }
-                let c = keymap::qwerty_to_dvorak(event.code);
-                match c {
-                    KeyCode::Backspace => test_word.remove_char(),
-                    KeyCode::Char(c) => {
-                        if c == ' ' && test_word.is_complete() {
-                            typed.push_str(test_word.as_str());
-                            typed.push(' ');
+        if let Event::Key(event) = read()? {
+            if event.code == KeyCode::Esc {
+                break;
+            }
+            let c = keymap::qwerty_to_dvorak(event.code);
+            match c {
+                KeyCode::Backspace => test_word.remove_char(),
+                KeyCode::Char(c) => {
+                    if c == ' ' && test_word.is_complete() {
+                        typed.push_str(test_word.as_str());
+                        typed.push(' ');
 
-                            let finished_word = test_word.finalise(c, start_char.elapsed()?);
-                            finished_words.push(finished_word);
+                        let finished_word = test_word.finalise(c, start_char.elapsed()?);
+                        finished_words.push(finished_word);
 
-                            test_word = match test_words.pop_front() {
-                                Some(word) => {
-                                    start_char = SystemTime::now();
-                                    word.into()
-                                }
-                                None => break,
-                            };
-                        } else {
-                            test_word.add_char(c, start_char.elapsed()?);
-                            start_char = SystemTime::now();
-                        }
+                        test_word = match test_words.pop_front() {
+                            Some(word) => {
+                                start_char = SystemTime::now();
+                                word.into()
+                            }
+                            None => break,
+                        };
+                    } else {
+                        test_word.add_char(c, start_char.elapsed()?);
+                        start_char = SystemTime::now();
                     }
-                    _ => {}
                 }
+                _ => {}
             }
         }
     }
@@ -239,13 +237,11 @@ fn main() {
         })?;
 
         'hold: loop {
-            if poll(Duration::from_millis(100))? {
-                if let Event::Key(event) = read()? {
-                    if event.code == KeyCode::Esc {
-                        break 'lessons;
-                    } else if event.code == KeyCode::Enter {
-                        break 'hold;
-                    }
+            if let Event::Key(event) = read()? {
+                if event.code == KeyCode::Esc {
+                    break 'lessons;
+                } else if event.code == KeyCode::Enter {
+                    break 'hold;
                 }
             }
         }
