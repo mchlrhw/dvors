@@ -25,6 +25,25 @@ impl TestResults<'_> {
         self.0.len()
     }
 
+    pub fn normalised_word_durations(&self) -> Vec<u64> {
+        self.0
+            .iter()
+            .map(|word| {
+                let word_duration_seconds = word
+                    .metrics()
+                    .iter()
+                    .fold(Duration::default(), |acc, metric| match metric {
+                        Metric::Delimiter { duration, .. }
+                        | Metric::Match { duration, .. }
+                        | Metric::Typo { duration, .. } => acc + *duration,
+                    })
+                    .as_secs_f64();
+
+                ((word_duration_seconds / word.len_inc_delim() as f64) * 1000.0) as u64
+            })
+            .collect::<Vec<u64>>()
+    }
+
     pub fn char_cnt(&self) -> usize {
         self.0
             .iter()

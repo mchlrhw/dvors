@@ -21,7 +21,7 @@ use tui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Style},
-    widgets::{Block, Borders, Paragraph, Text},
+    widgets::{Block, Borders, Paragraph, Sparkline, Text},
     Terminal,
 };
 
@@ -99,7 +99,14 @@ fn main() {
         terminal.draw(|mut frame| {
             let rows = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+                .constraints(
+                    [
+                        Constraint::Percentage(30),
+                        Constraint::Percentage(30),
+                        Constraint::Percentage(40),
+                    ]
+                    .as_ref(),
+                )
                 .split(frame.size());
 
             let row_0_chunks = Layout::default()
@@ -163,6 +170,15 @@ fn main() {
             let text = [Text::raw(format!("{:.1}", test_results.duration_secs()))];
             let paragraph = Paragraph::new(text.iter()).block(block);
             frame.render_widget(paragraph, row_1_chunks[2]);
+
+            let word_durations = test_results.normalised_word_durations();
+            let block = Block::default()
+                .title("word times (normalised)")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(block, rows[2]);
+            let sparkline = Sparkline::default().data(&word_durations).block(block);
+            frame.render_widget(sparkline, rows[2]);
         })?;
 
         'hold: loop {
